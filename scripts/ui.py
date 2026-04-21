@@ -40,8 +40,11 @@ def print_banner(project_name: str) -> None:
 
 
 def clear_spinner_line() -> None:
-    sys.stdout.write("\r" + " " * 50 + "\r")
-    sys.stdout.flush()
+    # Write to the raw stdout so spinner control characters bypass any tee
+    # that compile.py has installed on sys.stdout (otherwise \r frames would
+    # land in compile.log and make it unreadable).
+    sys.__stdout__.write("\r" + " " * 50 + "\r")
+    sys.__stdout__.flush()
 
 
 def _spin(stop_event: threading.Event, start_time: float) -> None:
@@ -49,8 +52,8 @@ def _spin(stop_event: threading.Event, start_time: float) -> None:
     while not stop_event.is_set():
         elapsed = time.monotonic() - start_time
         frame = next(frames)
-        sys.stdout.write(f"\r  [{frame}] working... {elapsed:5.1f}s ")
-        sys.stdout.flush()
+        sys.__stdout__.write(f"\r  [{frame}] working... {elapsed:5.1f}s ")
+        sys.__stdout__.flush()
         time.sleep(0.1)
     clear_spinner_line()
 

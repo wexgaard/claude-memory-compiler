@@ -42,6 +42,27 @@ from utils import (
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
+class _Tee:
+    """File-like that mirrors writes to multiple streams."""
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data: str) -> int:
+        n = 0
+        for s in self._streams:
+            n = s.write(data)
+            s.flush()
+        return n
+
+    def flush(self) -> None:
+        for s in self._streams:
+            s.flush()
+
+    def isatty(self) -> bool:
+        return any(getattr(s, "isatty", lambda: False)() for s in self._streams)
+
+
 async def compile_daily_log(log_path: Path, state: dict) -> float:
     """Compile a single daily log into knowledge articles.
 
@@ -85,8 +106,8 @@ async def compile_daily_log(log_path: Path, state: dict) -> float:
 
     timestamp = now_iso()
 
-    prompt = f"""You are a knowledge compiler. Your job is to read a daily conversation log
-and extract knowledge into structured wiki articles.
+    prompt = f"""You are a knowledge compiler. Your job is to read new entries from a daily
+conversation log and merge them into a set of structured wiki articles.
 
 ## Schema (AGENTS.md)
 
@@ -238,42 +259,54 @@ def main():
     if args.dry_run:
         return
 
-    ui.print_banner(ROOT_DIR.parent.name)
-    start_time = time.monotonic()
-    stop_event, spin_thread = ui.start_spinner(start_time)
     exit_code = 0
+    compile_log = SCRIPTS_DIR / "compile.log"
+    log_handle = open(compile_log, "a", encoding="utf-8")
+    original_stdout = sys.stdout
+    sys.stdout = _Tee(original_stdout, log_handle)
 
     try:
-        total_cost = 0.0
-        for i, log_path in enumerate(to_compile, 1):
-            ui.clear_spinner_line()
-            print(f"[{i}/{len(to_compile)}] Compiling {log_path.name}...")
-            cost = asyncio.run(compile_daily_log(log_path, state))
-            total_cost += cost
-            ui.clear_spinner_line()
-            print(f"  Done.")
+        log_handle.write(f"\n--- compile started {now_iso()} ---\n")
+        log_handle.flush()
 
-        articles = list_wiki_articles()
-        ui.clear_spinner_line()
-        print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
-        print(f"Knowledge base: {len(articles)} articles")
+        ui.print_banner(ROOT_DIR.parent.name)
+        start_time = time.monotonic()
+        stop_event, spin_thread = ui.start_spinner(start_time)
 
-        # Arm the cooldown only on a clean full-run exit
-        state["last_compile_at"] = now_iso()
-        save_state(state)
-    except Exception as e:
-        ui.clear_spinner_line()
-        print(f"Error: {e}", file=sys.stderr)
-        exit_code = 1
+        try:
+            total_cost = 0.0
+            for i, log_path in enumerate(to_compile, 1):
+                ui.clear_spinner_line()
+                print(f"[{i}/{len(to_compile)}] Compiling {log_path.name}...")
+                cost = asyncio.run(compile_daily_log(log_path, state))
+                total_cost += cost
+                ui.clear_spinner_line()
+                print(f"  Done.")
+
+            articles = list_wiki_articles()
+            ui.clear_spinner_line()
+            print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
+            print(f"Knowledge base: {len(articles)} articles")
+
+            # Arm the cooldown only on a clean full-run exit
+            state["last_compile_at"] = now_iso()
+            save_state(state)
+        except Exception as e:
+            ui.clear_spinner_line()
+            print(f"Error: {e}", file=sys.stderr)
+            exit_code = 1
+        finally:
+            stop_event.set()
+            spin_thread.join(timeout=1.0)
+            duration = time.monotonic() - start_time
+            ui.print_footer(
+                exit_code,
+                duration,
+                log_file=compile_log if exit_code != 0 else None,
+            )
     finally:
-        stop_event.set()
-        spin_thread.join(timeout=1.0)
-        duration = time.monotonic() - start_time
-        ui.print_footer(
-            exit_code,
-            duration,
-            log_file=SCRIPTS_DIR / "compile.log" if exit_code != 0 else None,
-        )
+        sys.stdout = original_stdout
+        log_handle.close()
 
     sys.exit(exit_code)
 
