@@ -22,6 +22,9 @@ STATE_FILE = SCRIPTS_DIR / "state.json"
 # ── Timezone ───────────────────────────────────────────────────────────
 TIMEZONE = "America/Chicago"
 
+# ── Compile scheduling ─────────────────────────────────────────────────
+COMPILE_COOLDOWN_HOURS = 4
+
 
 def now_iso() -> str:
     """Current time in ISO 8601 format."""

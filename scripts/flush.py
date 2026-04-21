@@ -29,6 +29,8 @@ SCRIPTS_DIR = ROOT / "scripts"
 STATE_FILE = SCRIPTS_DIR / "last-flush.json"
 LOG_FILE = SCRIPTS_DIR / "flush.log"
 
+from config import COMPILE_COOLDOWN_HOURS
+
 # Set up file-based logging so we can verify the background process ran.
 # The parent process sends stdout/stderr to DEVNULL (to avoid the inherited
 # file handle bug on Windows), so this is our only observability channel.
@@ -137,9 +139,6 @@ respond with exactly: FLUSH_OK
         response = f"FLUSH_ERROR: {type(e).__name__}: {e}"
 
     return response
-
-
-COMPILE_COOLDOWN_HOURS = 4
 
 
 def maybe_trigger_compilation() -> None:

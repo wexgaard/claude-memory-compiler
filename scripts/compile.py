@@ -22,6 +22,7 @@ from pathlib import Path
 import ui
 from config import (
     AGENTS_FILE,
+    COMPILE_COOLDOWN_HOURS,
     CONCEPTS_DIR,
     CONNECTIONS_DIR,
     DAILY_DIR,
@@ -255,7 +256,12 @@ def main():
         log_handle.write(f"\n--- compile started {now_iso()} ---\n")
         log_handle.flush()
 
-        ui.print_banner(ROOT_DIR.parent.name)
+        gated_by_cooldown = not (args.all or args.file)
+        ui.print_banner(
+            ROOT_DIR.parent.name,
+            last_compile_at=state.get("last_compile_at"),
+            cooldown_hours=COMPILE_COOLDOWN_HOURS if gated_by_cooldown else None,
+        )
         start_time = time.monotonic()
         stop_event, spin_thread = ui.start_spinner(start_time)
 

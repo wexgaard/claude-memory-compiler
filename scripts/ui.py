@@ -30,9 +30,23 @@ def enable_utf8_console() -> None:
         pass
 
 
-def print_banner(project_name: str) -> None:
+def print_banner(
+    project_name: str,
+    last_compile_at: str | None = None,
+    cooldown_hours: int | None = None,
+) -> None:
+    if last_compile_at:
+        try:
+            last_dt = datetime.fromisoformat(last_compile_at)
+            since = last_dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            since = last_compile_at
+        interval = f"compiling new entries since {since}"
+    else:
+        interval = "compiling pending daily log entries"
+    suffix = f" ({cooldown_hours}h cooldown)" if cooldown_hours else ""
     print(BAR)
-    print("  Memory Compiler - compiling today's daily log")
+    print(f"  Memory Compiler - {interval}{suffix}")
     print(f"  project {project_name}")
     print(f"  started {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(BAR)
