@@ -23,6 +23,7 @@ import ui
 from config import (
     AGENTS_FILE,
     COMPILE_COOLDOWN_HOURS,
+    COMPILE_LOCK_FILE,
     CONCEPTS_DIR,
     CONNECTIONS_DIR,
     DAILY_DIR,
@@ -299,6 +300,7 @@ def main():
     finally:
         sys.stdout = original_stdout
         log_handle.close()
+        COMPILE_LOCK_FILE.unlink(missing_ok=True)
 
     sys.exit(exit_code)
 

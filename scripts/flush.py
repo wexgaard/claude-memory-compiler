@@ -29,7 +29,11 @@ SCRIPTS_DIR = ROOT / "scripts"
 STATE_FILE = SCRIPTS_DIR / "last-flush.json"
 LOG_FILE = SCRIPTS_DIR / "flush.log"
 
-from config import COMPILE_COOLDOWN_HOURS
+from config import (
+    COMPILE_COOLDOWN_HOURS,
+    COMPILE_LOCK_FILE,
+    COMPILE_LOCK_STALE_SECONDS,
+)
 
 # Set up file-based logging so we can verify the background process ran.
 # The parent process sends stdout/stderr to DEVNULL (to avoid the inherited
@@ -178,6 +182,13 @@ def maybe_trigger_compilation() -> None:
     if not compile_script.exists():
         return
 
+    # Atomic lock: O_CREAT | O_EXCL guarantees exactly one flush.py wins
+    # the race when sessions end within the same compile run. compile.py
+    # removes the lock on exit; a 30-min staleness check recovers from
+    # crashes.
+    if not _acquire_compile_lock():
+        return
+
     logging.info(
         "Compilation triggered (cooldown %d h elapsed)", COMPILE_COOLDOWN_HOURS
     )
@@ -194,6 +205,38 @@ def maybe_trigger_compilation() -> None:
         _sp.Popen(cmd, cwd=str(ROOT), **kwargs)
     except Exception as e:
         logging.error("Failed to spawn compile.py: %s", e)
+        COMPILE_LOCK_FILE.unlink(missing_ok=True)
+
+
+def _acquire_compile_lock() -> bool:
+    """Try to create compile.lock exclusively. Returns True on success."""
+    try:
+        fd = os.open(str(COMPILE_LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        pass
+
+    try:
+        age = time.time() - COMPILE_LOCK_FILE.stat().st_mtime
+    except OSError:
+        age = 0.0
+
+    if age < COMPILE_LOCK_STALE_SECONDS:
+        logging.info("Skip compile: compile.lock held (age %.0fs)", age)
+        return False
+
+    logging.warning("Removing stale compile.lock (age %.0fs)", age)
+    COMPILE_LOCK_FILE.unlink(missing_ok=True)
+    try:
+        fd = os.open(str(COMPILE_LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        logging.info("Skip compile: compile.lock contended after stale cleanup")
+        return False
 
 
 def main():

@@ -24,6 +24,8 @@ TIMEZONE = "America/Chicago"
 
 # ── Compile scheduling ─────────────────────────────────────────────────
 COMPILE_COOLDOWN_HOURS = 4
+COMPILE_LOCK_FILE = SCRIPTS_DIR / "compile.lock"
+COMPILE_LOCK_STALE_SECONDS = 30 * 60
 
 
 def now_iso() -> str:
