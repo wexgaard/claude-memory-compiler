@@ -55,7 +55,18 @@ async def compile_daily_log(log_path: Path, state: dict) -> float:
         query,
     )
 
-    log_content = log_path.read_text(encoding="utf-8")
+    ingested_entry = state.get("ingested", {}).get(log_path.name, {})
+    offset = ingested_entry.get("last_compiled_byte_offset", 0)
+    with open(log_path, "rb") as f:
+        f.seek(offset)
+        delta_bytes = f.read()
+    delta_content = delta_bytes.decode("utf-8", errors="replace")
+    previous_last_compile_at = state.get("last_compile_at") or "never"
+
+    if not delta_content.strip():
+        print(f"  No new content since last compile, skipping {log_path.name}.")
+        return 0.0
+
     schema = AGENTS_FILE.read_text(encoding="utf-8")
     wiki_index = read_wiki_index()
 
@@ -89,15 +100,15 @@ and extract knowledge into structured wiki articles.
 
 {existing_articles_context if existing_articles_context else "(No existing articles yet)"}
 
-## Daily Log to Compile
+## New Entries Since Last Compile ({previous_last_compile_at})
 
 **File:** {log_path.name}
 
-{log_content}
+{delta_content}
 
 ## Your Task
 
-Read the daily log above and compile it into wiki articles following the schema exactly.
+Read the new entries above and merge them into the existing wiki articles (shown earlier). Update existing articles rather than replacing them; create new articles only for genuinely new concepts. Follow the schema exactly.
 
 ### Rules:
 
@@ -160,12 +171,13 @@ Read the daily log above and compile it into wiki articles following the schema 
         print(f"  Error: {e}")
         return 0.0
 
-    # Update state
+    # Update state - advance the offset so the next compile only sees new content
     rel_path = log_path.name
     state.setdefault("ingested", {})[rel_path] = {
         "hash": file_hash(log_path),
         "compiled_at": now_iso(),
         "cost_usd": cost,
+        "last_compiled_byte_offset": log_path.stat().st_size,
     }
     state["total_cost"] = state.get("total_cost", 0.0) + cost
     save_state(state)
@@ -208,6 +220,13 @@ def main():
                 if not prev or prev.get("hash") != file_hash(log_path):
                     to_compile.append(log_path)
 
+    # Force recompile: reset offsets so the full log is re-sent to the LLM.
+    if args.all or args.file:
+        for log_path in to_compile:
+            entry = state.get("ingested", {}).get(log_path.name)
+            if entry:
+                entry["last_compiled_byte_offset"] = 0
+
     if not to_compile:
         print("Nothing to compile - all daily logs are up to date.")
         return
@@ -238,6 +257,10 @@ def main():
         ui.clear_spinner_line()
         print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
         print(f"Knowledge base: {len(articles)} articles")
+
+        # Arm the cooldown only on a clean full-run exit
+        state["last_compile_at"] = now_iso()
+        save_state(state)
     except Exception as e:
         ui.clear_spinner_line()
         print(f"Error: {e}", file=sys.stderr)
