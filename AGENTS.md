@@ -368,6 +368,10 @@ Spawned by both hooks as a fully detached background process:
 
 This ensures flush.py survives after Claude Code's hook process exits.
 
+When flush.py itself spawns compile.py (see step 8 below), a different set of
+creation flags is used on Windows — `CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP`
+— so compile.py's inlined banner/spinner UI has a visible console to draw into.
+
 **What flush.py does:**
 1. Sets `CLAUDE_INVOKED_BY=memory_flush` env var (prevents recursive hook firing)
 2. Reads the pre-extracted conversation context from the temp `.md` file
@@ -376,7 +380,7 @@ This ensures flush.py survives after Claude Code's hook process exits.
 5. Claude decides what's worth saving - returns structured bullet points or `FLUSH_OK`
 6. Appends result to `daily/YYYY-MM-DD.md`
 7. Cleans up temp context file
-8. **End-of-day auto-compilation:** If it's past 6 PM local time (`COMPILE_AFTER_HOUR = 18`) and today's daily log has changed since its last compilation (hash comparison against `state.json`), spawns `compile.py` as another detached background process. This means compilation happens automatically once a day without needing a cron job or manual trigger.
+8. **Auto-compilation:** If at least `COMPILE_COOLDOWN_HOURS = 4` have elapsed since the previous compile (tracked via `state["last_compile_at"]`) and today's daily log has changed since its last compilation (hash comparison against `state.json`), spawns `compile.py` in a visible new console window. This means compilation happens automatically a few times a day without needing a cron job or manual trigger.
 
 ### JSONL Transcript Format
 

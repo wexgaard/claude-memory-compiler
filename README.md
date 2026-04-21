@@ -17,7 +17,7 @@ The agent will:
 2. Copy `.claude/settings.json` into your project (or merge the hooks into your existing settings)
 3. The hooks activate automatically next time you open Claude Code
 
-From there, your conversations start accumulating. After 6 PM local time, the next session flush automatically triggers compilation of that day's logs into knowledge articles. You can also run `uv run python scripts/compile.py` manually at any time.
+From there, your conversations start accumulating. The next session flush triggers compilation of that day's logs into knowledge articles whenever the 4-hour cooldown has elapsed since the previous compile and today's log has changed. You can also run `uv run python scripts/compile.py` manually at any time.
 
 ## How It Works
 
@@ -28,7 +28,7 @@ Conversation -> SessionEnd/PreCompact hooks -> flush.py extracts knowledge
 ```
 
 - **Hooks** capture conversations automatically (session end + pre-compaction safety net)
-- **flush.py** calls the Claude Agent SDK to decide what's worth saving, and after 6 PM triggers end-of-day compilation automatically
+- **flush.py** calls the Claude Agent SDK to decide what's worth saving, and triggers compilation automatically once the 4-hour cooldown has elapsed
 - **compile.py** turns daily logs into organized concept articles with cross-references (triggered automatically or run manually)
 - **query.py** answers questions using index-guided retrieval (no RAG needed at personal scale)
 - **lint.py** runs 7 health checks (broken links, orphans, contradictions, staleness)
@@ -50,3 +50,14 @@ Karpathy's insight: at personal scale (50-500 articles), the LLM reading a struc
 ## Technical Reference
 
 See **[AGENTS.md](AGENTS.md)** for the complete technical reference: article formats, hook architecture, script internals, cross-platform details, costs, and customization options. AGENTS.md is designed to give an AI agent everything it needs to understand, modify, or rebuild the system.
+
+## Fork notes
+
+This fork diverges from upstream (`coleam00/claude-memory-compiler`) in four coupled ways:
+
+- **4-hour cooldown instead of a 6 PM gate.** `flush.py` triggers compilation whenever the cooldown has elapsed since the previous run, so users who close their laptop before 18:00 still get a compile.
+- **Incremental compile.** `compile.py` only sends the bytes appended to today's daily log since the last compile, instead of re-sending the full file every time.
+- **Inlined progress UI.** The banner/spinner/footer that previously lived in the `show-compile-progress` skill's launcher are built directly into `compile.py` via `scripts/ui.py`; `flush.py` spawns `compile.py` in a visible `CREATE_NEW_CONSOLE` window with no launcher wrapper.
+- **Quieter daily logs.** Empty-session flushes (`FLUSH_OK`) no longer append a stub entry to the daily log; the outcome is recorded in `scripts/flush.log` only.
+
+Known future optimization: the existing-articles context block still loads every article into every prompt (20-30 KB at ~50 articles). Not addressed in this fork.

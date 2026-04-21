@@ -16,9 +16,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from pathlib import Path
 
-from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, DAILY_DIR, KNOWLEDGE_DIR, now_iso
+import ui
+from config import (
+    AGENTS_FILE,
+    CONCEPTS_DIR,
+    CONNECTIONS_DIR,
+    DAILY_DIR,
+    KNOWLEDGE_DIR,
+    SCRIPTS_DIR,
+    now_iso,
+)
 from utils import (
     file_hash,
     list_raw_files,
@@ -170,6 +180,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show what would be compiled")
     args = parser.parse_args()
 
+    ui.enable_utf8_console()
+
     state = load_state()
 
     # Determine which files to compile
@@ -207,17 +219,40 @@ def main():
     if args.dry_run:
         return
 
-    # Compile each file sequentially
-    total_cost = 0.0
-    for i, log_path in enumerate(to_compile, 1):
-        print(f"\n[{i}/{len(to_compile)}] Compiling {log_path.name}...")
-        cost = asyncio.run(compile_daily_log(log_path, state))
-        total_cost += cost
-        print(f"  Done.")
+    ui.print_banner(ROOT_DIR.parent.name)
+    start_time = time.monotonic()
+    stop_event, spin_thread = ui.start_spinner(start_time)
+    exit_code = 0
 
-    articles = list_wiki_articles()
-    print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
-    print(f"Knowledge base: {len(articles)} articles")
+    try:
+        total_cost = 0.0
+        for i, log_path in enumerate(to_compile, 1):
+            ui.clear_spinner_line()
+            print(f"[{i}/{len(to_compile)}] Compiling {log_path.name}...")
+            cost = asyncio.run(compile_daily_log(log_path, state))
+            total_cost += cost
+            ui.clear_spinner_line()
+            print(f"  Done.")
+
+        articles = list_wiki_articles()
+        ui.clear_spinner_line()
+        print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
+        print(f"Knowledge base: {len(articles)} articles")
+    except Exception as e:
+        ui.clear_spinner_line()
+        print(f"Error: {e}", file=sys.stderr)
+        exit_code = 1
+    finally:
+        stop_event.set()
+        spin_thread.join(timeout=1.0)
+        duration = time.monotonic() - start_time
+        ui.print_footer(
+            exit_code,
+            duration,
+            log_file=SCRIPTS_DIR / "compile.log" if exit_code != 0 else None,
+        )
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
